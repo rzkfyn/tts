@@ -9,6 +9,7 @@ const DIR = { across: "Mendatar", down: "Menurun" };
 const REACT_EMOJI = { wave: "👋", tawa: "😂", api: "🔥", pesta: "🎉", degdegan: "😬" };
 const CODE_TILT = [-6, 4, -3, 5, -4, 3]; // degrees, like the TTS logo
 const TILE_TILT = [-2, 1.5, -1, 2, -1.5, 1];
+const secretAnswers = new Map(); // clue id -> secret answer from host_answers
 
 let sock = null;
 let st = null; // latest RoomState
@@ -43,6 +44,8 @@ boot();
 async function boot() {
   if (!/^\d{6}$/.test(code)) return message("Kode room tidak valid", "Buka layar utama dari halaman admin (tombol “Mulai live”).", true);
   $("#codeChip").textContent = code;
+  const tvBtn = $("#openTvBtn");
+  if (tvBtn) tvBtn.href = `/tv.html#${code}`;
   let me;
   try {
     me = (await api("/api/me")).user;
@@ -110,6 +113,13 @@ function onMessage(msg) {
       st = msg.state;
       cues(prev, st);
       render();
+      break;
+    }
+    case "host_answers": {
+      for (const [id, ans] of Object.entries(msg.answers || {})) {
+        secretAnswers.set(id, ans);
+      }
+      if (phase === "playing") renderPlaying();
       break;
     }
     case "buzz": {
@@ -519,8 +529,10 @@ function renderPlaying() {
           return `<span class="row" style="gap:.3rem">${avatarImg(p?.avatar, 28, p?.nickname)}${esc(p?.nickname ?? "?")}</span>`;
         }).join("")}</div>`
       : "";
+    const sec = secretAnswers.get(activeClue.id);
+    const cheat = sec ? `<span class="chip cheat-sheet" title="Kunci jawaban host">${esc(sec)}</span>` : "";
     body = `
-      <p class="eyebrow">${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf</p>
+      <p class="eyebrow">${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf ${cheat}</p>
       <div class="clue-big">${esc(activeClue.clue)}</div>
       <div class="astate">${stateHtml}</div>
       ${locked}`;
@@ -556,8 +568,10 @@ function renderPlaying() {
       extra = `${p ? avatarImg(p.avatar, 26, p.nickname) : ""}<span class="chip mint">${esc(c.answer ?? "")}</span>`;
     } else if (c.status === "revealed") extra = `<span class="chip">dibuka${c.answer ? `: ${esc(c.answer)}` : ""}</span>`;
     else if (c.status === "skipped") extra = `<span class="chip sun">dilewati</span>`;
+    const sec = secretAnswers.get(c.id);
+    const cheat = (sec && c.status !== "solved" && c.status !== "revealed") ? `<span class="chip cheat-sheet" title="Kunci jawaban host">${esc(sec)}</span>` : "";
     const cls = [c.status, c.id === active?.clue_id ? "act" : c.id === selected && pickable(c) ? "sel" : "", canPick && pickable(c) ? "pick" : ""].join(" ");
-    return `<li class="${cls}" data-clue="${esc(c.id)}"><span class="n">${c.number}</span><span class="ct">${esc(c.clue)} <span class="muted">(${c.length})</span></span>${extra}</li>`;
+    return `<li class="${cls}" data-clue="${esc(c.id)}"><span class="n">${c.number}</span><span class="ct">${esc(c.clue)} <span class="muted">(${c.length})</span></span>${cheat}${extra}</li>`;
   }).join("");
   $("#clues").innerHTML = `<h2>Mendatar</h2><ul class="clue-list">${list("across")}</ul><h2>Menurun</h2><ul class="clue-list">${list("down")}</ul>`;
 }
