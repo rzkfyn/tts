@@ -214,3 +214,9 @@ type reactMsg struct {
 	PlayerID string `json:"player_id"`
 	Kind     string `json:"kind"`
 }
+
+type hostAnswersMsg struct {
+	Type    string            `json:"type"`
+	Answers map[string]string `json:"answers"`
+}
+

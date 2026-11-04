@@ -127,6 +127,7 @@ type Room struct {
 	byID         map[string]*clue
 	players      []*player
 	clients      map[*Client]*player // nil value = host
+	displays     map[*Client]struct{}
 	nextID       int
 	active       *activeClue
 	gen          int
@@ -143,7 +144,7 @@ func newRoom(code string, cfg Config, g crossword.Grid, clock Clock, persist Per
 		code: code, cfg: cfg, clock: clock, persist: persist, hub: hub,
 		in: make(chan func()), done: make(chan struct{}),
 		phase: PhaseLobby, settings: cfg.Settings, cells: PublicCells(g), width: g.Width, height: g.Height,
-		byID: map[string]*clue{}, clients: map[*Client]*player{},
+		byID: map[string]*clue{}, clients: map[*Client]*player{}, displays: map[*Client]struct{}{},
 		lastActivity: clock.Now(),
 	}
 	r.phaseV.Store(new(PhaseLobby))
@@ -227,6 +228,9 @@ func (r *Room) shutdown() {
 	for c := range r.clients {
 		r.closeClient(c)
 	}
+	for c := range r.displays {
+		r.closeClient(c)
+	}
 	r.hub.remove(r)
 	r.stopped = true
 }
@@ -268,6 +272,9 @@ func (r *Room) broadcast(v any) {
 		return
 	}
 	for c := range r.clients {
+		r.sendRaw(c, b)
+	}
+	for c := range r.displays {
 		r.sendRaw(c, b)
 	}
 }
@@ -329,12 +336,18 @@ func (r *Room) join(c *Client, h Hello, u *store.User) {
 	if _, dup := r.clients[c]; dup || c.closed {
 		return
 	}
+	if _, dup := r.displays[c]; dup || c.closed {
+		return
+	}
 	r.touch()
 	reject := func(msg string) {
 		r.sendError(c, msg)
 		r.closeClient(c)
 	}
 	switch h.Role {
+	case "tv":
+		r.displays[c] = struct{}{}
+		r.send(c, stateMsg{Type: "state", State: r.snapshot()})
 	case "host":
 		if u == nil || !u.IsAdmin() {
 			reject("Khusus admin")
@@ -342,6 +355,11 @@ func (r *Room) join(c *Client, h Hello, u *store.User) {
 		}
 		r.clients[c] = nil
 		r.send(c, stateMsg{Type: "state", State: r.snapshot()})
+		answers := make(map[string]string, len(r.clues))
+		for _, cl := range r.clues {
+			answers[cl.pub.ID] = cl.answer
+		}
+		r.send(c, hostAnswersMsg{Type: "host_answers", Answers: answers})
 	case "player":
 		p, msg := r.admit(h, u)
 		if p == nil {
@@ -426,6 +444,12 @@ func (r *Room) defaultBell() string {
 }
 
 func (r *Room) leave(c *Client) {
+	if _, isDisplay := r.displays[c]; isDisplay {
+		delete(r.displays, c)
+		r.closeClient(c)
+		r.touch()
+		return
+	}
 	p, ok := r.clients[c]
 	r.closeClient(c)
 	if !ok {
@@ -455,6 +479,11 @@ func (r *Room) leave(c *Client) {
 // --- messages ---
 
 func (r *Room) message(c *Client, m Msg) {
+	if _, isDisplay := r.displays[c]; isDisplay {
+		r.touch()
+		r.sendError(c, "Tampilan TV tidak dapat mengirim aksi")
+		return
+	}
 	p, ok := r.clients[c]
 	if !ok {
 		return
