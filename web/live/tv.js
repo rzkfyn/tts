@@ -23,6 +23,10 @@ const anim = new Map();
 const flash = new Map();
 let shakeUntil = 0;
 let gotState = false;
+const heard = new Set();
+let finishSeq = 0;
+let ticking = null;
+
 
 // ---------- boot ----------
 
@@ -115,46 +119,56 @@ function onMessage(msg) {
 }
 
 function cues(prev, next) {
+  syncTick(next);
   if (!prev) {
-    if (next.phase === "lobby") Sound.bed("mu-elevator");
-    else if (next.phase === "playing") Sound.bed("mu-carefree");
-    else if (next.phase === "finished") Sound.bed("mu-credits");
+    next.players.forEach((p) => heard.add(p.id));
+    if (next.phase === "finished") finishSequence(false);
+    else Sound.music(next.phase === "lobby" ? "mu-elevator" : "mu-carefree");
     return;
   }
+  if (next.players.some((p) => !heard.has(p.id))) Sound.play("ev-join");
+  next.players.forEach((p) => heard.add(p.id));
   if (prev.phase !== next.phase) {
     if (next.phase === "playing") {
       Sound.play("ev-start");
-      Sound.bed("mu-carefree");
+      Sound.music("mu-carefree");
       startCountdown();
-    } else if (next.phase === "finished") {
-      Sound.play("ev-winner");
-      Sound.play("ev-applause");
-      Sound.bed("mu-credits");
-    }
+    } else if (next.phase === "finished") finishSequence(true);
   }
-  if (next.phase === "lobby" && next.players.length > prev.players.length) Sound.play("ev-join");
-  if (next.phase === "playing") {
-    const pa = prev.active;
-    const na = next.active;
-    if (!pa && na) {
-      Sound.play("ev-clue");
-      Sound.duck(true);
-    } else if (pa && !na) {
-      Sound.duck(false);
-      Sound.stopTick();
-    }
-    if (na?.state === "answering" && na.deadline && pa?.state !== "answering") {
-      Sound.startTick(na.deadline - (next.server_now - Date.now()));
-    } else if (pa?.state === "answering" && na?.state !== "answering") {
-      Sound.stopTick();
-    }
-    const lo = next.last_outcome;
-    if (lo && lo !== prev.last_outcome) {
-      if (lo.kind === "solved") Sound.play("ev-correct");
-      else if (lo.kind === "exhausted") Sound.play("ev-reveal");
-      else if (lo.kind === "skipped") Sound.play("ev-wrong");
-    }
-  }
+  if (next.active && next.active.clue_id !== prev.active?.clue_id) Sound.play("ev-clue");
+  const lo = next.last_outcome;
+  if (lo?.kind === "exhausted" && !(prev.last_outcome?.kind === "exhausted" && prev.last_outcome.clue_id === lo.clue_id)) Sound.play("ev-reveal");
+  else if (lo?.kind === "solved" && !(prev.last_outcome?.kind === "solved" && prev.last_outcome.clue_id === lo.clue_id)) Sound.play("ev-correct");
+  else if (lo?.kind === "skipped" && !(prev.last_outcome?.kind === "skipped" && prev.last_outcome.clue_id === lo.clue_id)) Sound.play("ev-wrong");
+}
+
+/** ev-winner, then ev-applause when it ends, then the credits loop. `live` = the game just ended in front of us. */
+function finishSequence(live) {
+  const seq = ++finishSeq;
+  Sound.music(null);
+  if (!live) { Sound.music("mu-credits"); return; }
+  Sound.play("ev-winner").ended
+    .then(() => (seq === finishSeq ? Sound.play("ev-applause").ended : null))
+    .then(() => { if (seq === finishSeq) Sound.music("mu-credits"); });
+}
+
+/** Tick-tock is scheduled so its last sample lands on the deadline; late starts seek into the buffer. */
+function syncTick(next) {
+  const a = next.active;
+  const key = a && a.state === "answering" && a.deadline ? `${a.clue_id}|${a.answering_player}|${a.deadline}` : null;
+  if (key === (ticking?.key ?? null)) return;
+  ticking?.handle?.stop();
+  ticking = key ? { key, handle: null } : null;
+  if (!key) return;
+  const run = ticking;
+  Sound.preload(["ev-ticktock"]).then(() => {
+    const dur = Sound.duration("ev-ticktock");
+    if (ticking !== run || dur === null) return;
+    const startIn = a.deadline - dur * 1000 - sock.serverNow(); // ms until the buffer must start
+    run.handle = startIn >= 0
+      ? Sound.play("ev-ticktock", { when: Sound.time() + startIn / 1000 })
+      : Sound.play("ev-ticktock", { offset: -startIn / 1000 });
+  });
 }
 
 function render() {
@@ -329,7 +343,6 @@ function renderPlaying() {
   const active = st.active;
   const activeClue = active && q.clues.find((c) => c.id === active.clue_id);
   if (activeClue) selected = activeClue.id;
-  const selClue = q.clues.find((c) => c.id === selected);
 
   // Outcome banner
   const lo = st.last_outcome;
@@ -473,7 +486,7 @@ function confetti() {
     c: colors[Math.floor(Math.random() * colors.length)],
   }));
   const endAt = performance.now() + 7000;
-  function frame(t) {
+  function confettiFrame(t) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (const b of bits) {
       b.x += b.vx; b.y += b.vy; b.a += b.va;
@@ -485,11 +498,30 @@ function confetti() {
       ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
       ctx.restore();
     }
-    if (t < endAt || bits.some((b) => b.y < canvas.height + 20)) requestAnimationFrame(frame);
+    if (t < endAt || bits.some((b) => b.y < canvas.height + 20)) requestAnimationFrame(confettiFrame);
     else { canvas.remove(); window.removeEventListener("resize", resize); }
+  }
+  requestAnimationFrame(confettiFrame);
+}
+
+// Countdowns and outcome banner are driven by animation frames
+function frame() {
+  if (sock && st) {
+    const t = sock.serverNow();
+    for (const el of app.querySelectorAll("[data-deadline]")) {
+      const { text, low } = fmtCountdown(Number(el.dataset.deadline) - t);
+      if (el.textContent !== text) el.textContent = text;
+      el.classList.toggle("low", low);
+    }
+  }
+  if (outcome && Date.now() > outcome.until) {
+    outcome = null;
+    const slot = $("#outcome");
+    if (slot) slot.innerHTML = "";
   }
   requestAnimationFrame(frame);
 }
+requestAnimationFrame(frame);
 
 // ----- helpers -----
 
@@ -505,8 +537,8 @@ function cellsOf(c) {
   return out;
 }
 function countdown(deadline) {
-  const s = fmtCountdown(deadline - (st.server_now - Date.now()));
-  return `<span class="cd chip sun" data-until="${deadline}">${s}</span>`;
+  const { text, low } = fmtCountdown(deadline - sock.serverNow());
+  return `<span class="cd${low ? " low" : ""}" data-deadline="${deadline}">${text}</span>`;
 }
 function ranked() {
   return [...(st.players || [])].sort((a, b) => b.score - a.score || a.nickname.localeCompare(b.nickname));
