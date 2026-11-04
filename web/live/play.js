@@ -320,7 +320,11 @@ function render() {
   const you = mine();
   const chip = $("#scoreChip");
   chip.classList.toggle("hidden", !you || st.phase === "lobby");
-  if (you) chip.textContent = `${you.score} poin`;
+  if (you) {
+    const sorted = [...st.players].sort((a, b) => b.score - a.score || a.nickname.localeCompare(b.nickname));
+    const rank = sorted.findIndex((p) => p.id === myId) + 1;
+    chip.textContent = `#${rank} · ${you.score} poin`;
+  }
   if (!you) {
     // State before our welcome (or our slot vanished): nothing personal to show yet.
     if (view !== "pending") { view = "pending"; app.innerHTML = `<p class="muted">Menghubungkan…</p>`; }
@@ -498,9 +502,21 @@ function renderPlaying() {
   let action;
   if (a.state === "answering") {
     const p = player(a.answering_player);
-    action = `<button type="button" class="bel off" disabled>${esc(p?.nickname ?? "?")} sedang menjawab…${a.deadline ? `<span class="cd" data-deadline="${a.deadline}">${countdown(a.deadline).text}</span>` : ""}</button>`;
+    action = `<div class="opponent-box">
+      <div class="row" style="justify-content:center; gap:.6rem;">
+        ${avatarImg(p?.avatar, 52, p?.nickname)}
+        <div style="text-align:left;">
+          <b>${esc(p?.nickname ?? "?")}</b>
+          <div class="muted">sedang menjawab…</div>
+        </div>
+      </div>
+      ${a.deadline ? `<span class="cd" data-deadline="${a.deadline}">${countdown(a.deadline).text}</span>` : ""}
+    </div>`;
   } else if (a.locked_out.includes(myId)) {
-    action = `<button type="button" class="bel off" disabled>Kamu sudah dapat giliran di soal ini</button>`;
+    action = `<div class="locked-box">
+      <div class="chip sun">🔒 Terkunci</div>
+      <p>Kamu sudah mencoba di soal ini.<br><small class="muted">Tunggu jika bel terbuka lagi untuk soal berikutnya.</small></p>
+    </div>`;
   } else {
     const pressed = buzzedFor === a.clue_id;
     action = `<button type="button" class="bel${pressed ? " pressed" : ""}" id="bel" ${pressed ? "disabled" : ""}>BEL!</button>

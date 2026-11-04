@@ -232,3 +232,8 @@
 .chip.cheat-sheet { background: var(--sun); color: var(--navy); font-weight: 800; font-family: monospace; letter-spacing: .05em; padding: .1rem .45rem; border-radius: 6px; border: 1.5px solid var(--navy); }
 .open-tv-btn { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; font-weight: 800; }
 
+/* Player live status enhancements */
+.opponent-box { display: grid; justify-items: center; gap: .6rem; padding: 1.2rem; background: var(--paper); border: 2.5px solid var(--navy); border-radius: 18px; box-shadow: var(--lift); width: min(85vw, 340px); text-align: center; }
+.locked-box { display: grid; justify-items: center; gap: .4rem; padding: 1.2rem; background: var(--sky); border: 2.5px dashed var(--navy); border-radius: 18px; width: min(85vw, 340px); text-align: center; }
+
+
