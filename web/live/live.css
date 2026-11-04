@@ -221,3 +221,14 @@
   .pod.r3 .block { height: 80px; }
   .top .title { max-width: 40vw; }
 }
+
+/* TV specific adaptations */
+.tv-stage .board .tile { cursor: default; }
+.tv-stage .clue-big { font-size: clamp(2rem, 3.4vw, 3.2rem); }
+.tv-lobby { grid-template-columns: minmax(360px, 480px) 1fr; }
+.tv-finish { max-width: 1100px; }
+
+/* Host Cheat Sheet */
+.chip.cheat-sheet { background: var(--sun); color: var(--navy); font-weight: 800; font-family: monospace; letter-spacing: .05em; padding: .1rem .45rem; border-radius: 6px; border: 1.5px solid var(--navy); }
+.open-tv-btn { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; font-weight: 800; }
+
