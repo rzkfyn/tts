@@ -284,6 +284,9 @@ function skeletonLobby() {
         <img class="qr" src="/api/live/rooms/${encodeURIComponent(code)}/qr.png" alt="QR untuk bergabung" width="260" height="260">
         <p class="muted">Pindai QR atau buka:</p>
         <p class="join-url">${(() => { const i = joinUrl.indexOf("/play.html"); return i < 0 ? esc(joinUrl) : `<span class="host">${esc(joinUrl.slice(0, i))}</span><wbr><span class="path">${esc(joinUrl.slice(i))}</span>`; })()}</p>
+        <div class="row" style="justify-content:center; margin-top:1rem;">
+          <a class="btn sun open-tv-btn" target="_blank" href="/tv.html#${encodeURIComponent(code)}">📺 Buka Layar TV (Proyektor)</a>
+        </div>
       </section>
       <div class="lobby-main">
         <section class="panel">

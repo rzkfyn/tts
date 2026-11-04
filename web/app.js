@@ -577,7 +577,7 @@ async function startLive(quizId, btn, errEl) {
     const url = `/host.html#${code}`;
     if (win) win.location.href = url;
     else window.open(url);
-    toast(`Room ${code} dibuka di tab baru`);
+    toast(`Room ${code} dibuka di Kontrol Host. Klik "📺 Buka TV" untuk proyektor.`);
   } catch (e) {
     win?.close();
     setError(errEl, e.message);
