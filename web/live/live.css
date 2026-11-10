@@ -20,6 +20,76 @@
 .sound-mute:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--navy); }
 .sound-mute[aria-pressed="true"] { background: var(--tomato-soft); }
 
+/* Mic status button in header */
+.mic-status-btn { width: 44px; height: 44px; padding: 0; border: 2.5px solid var(--navy); border-radius: 12px; background: var(--paper); box-shadow: var(--lift); font-size: 1.25rem; line-height: 1; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; transition: transform .08s, box-shadow .08s, background .15s; }
+.mic-status-btn:hover { background: var(--sun-soft); }
+.mic-status-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--navy); }
+.mic-status-btn.granted { background: var(--mint); }
+
+/* Permission modal box */
+.perm-box {
+  width: min(92vw, 420px);
+  text-align: center;
+  padding: 1.6rem 1.4rem;
+  background: var(--paper);
+  border: 3.5px solid var(--navy);
+  border-radius: 22px;
+  box-shadow: 0 8px 0 var(--navy);
+  animation: pop-modal .22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+@keyframes pop-modal {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.perm-icon {
+  font-size: 3.2rem;
+  line-height: 1;
+  margin-bottom: .6rem;
+  display: inline-block;
+  animation: perm-mic-bounce 1.6s ease-in-out infinite alternate;
+}
+@keyframes perm-mic-bounce {
+  from { transform: translateY(0) scale(1); }
+  to { transform: translateY(-5px) scale(1.06); }
+}
+.perm-box h2 {
+  font-size: 1.35rem;
+  margin: 0 0 .5rem;
+}
+.perm-box p {
+  font-size: 1rem;
+  line-height: 1.4;
+  margin: .3rem 0;
+}
+.perm-box .sub {
+  font-size: .88rem;
+  color: var(--muted);
+  margin-top: .4rem;
+}
+.perm-tip {
+  margin: .8rem 0;
+  padding: .65rem .85rem;
+  background: var(--sky);
+  border: 2px dashed var(--navy);
+  border-radius: 12px;
+  font-size: .88rem;
+  line-height: 1.35;
+  text-align: left;
+  color: var(--navy);
+}
+.perm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: .65rem;
+  margin-top: 1.3rem;
+}
+.perm-box .btn {
+  font-size: 1.05rem;
+  padding: .75rem 1.2rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .sound-ctl {
   position: fixed;
   right: 1rem;
@@ -269,6 +339,19 @@
 .tile.typed { background: var(--sun-soft); }
 .tile.cursor { background: var(--sun); }
 .ans-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; border: 0; padding: 0; background: transparent; color: transparent; caret-color: transparent; }
+.ans-actions { display: flex; align-items: center; justify-content: center; gap: .8rem; width: 100%; max-width: 420px; }
+.ans-actions .btn { flex: 1 1 140px; }
+.voice-btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; font-weight: 800; font-size: 1.15rem; padding: .8rem 1.4rem; background: var(--paper); border: 2.5px solid var(--navy); border-radius: 12px; box-shadow: var(--lift); cursor: pointer; transition: transform .08s, box-shadow .08s, background .15s, color .15s; user-select: none; -webkit-tap-highlight-color: transparent; }
+.voice-btn:hover { background: var(--sun-soft); }
+.voice-btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--navy); }
+.voice-btn .voice-icon { font-size: 1.25rem; line-height: 1; }
+.voice-btn.listening { background: var(--tomato); color: #fff; border-color: var(--navy); animation: voice-pulse 1.1s ease-in-out infinite alternate; }
+.voice-btn.listening .voice-icon { display: inline-block; animation: mic-blink .6s ease-in-out infinite alternate; }
+.voice-status { width: 100%; max-width: 420px; padding: .45rem .8rem; border-radius: 10px; background: var(--sky); border: 2px dashed var(--navy); font-weight: 700; font-size: .95rem; color: var(--navy); text-align: center; overflow-wrap: anywhere; }
+.voice-status.listening { background: var(--sun-soft); border-style: solid; }
+.voice-status.heard { background: var(--mint); border-style: solid; color: var(--navy); }
+@keyframes voice-pulse { from { box-shadow: 0 0 0 0 rgba(255, 90, 54, 0.6), var(--lift); } to { box-shadow: 0 0 0 8px rgba(255, 90, 54, 0), var(--lift); } }
+@keyframes mic-blink { from { opacity: 1; transform: scale(1); } to { opacity: .5; transform: scale(1.15); } }
 .ring { width: 76px; height: 76px; }
 .ring circle { fill: none; stroke-width: 7; }
 .ring .bg { stroke: rgba(28, 37, 65, .15); }
@@ -298,6 +381,10 @@
   .player .ring text { font-size: 20px; }
   .player .ring circle { stroke-width: 5; }
   .player .btn.big { padding: .5rem 1.2rem; font-size: 1.05rem; min-height: 44px; }
+  .sound-mute, .mic-status-btn { width: 38px; height: 38px; font-size: 1.15rem; }
+  .ans-actions { gap: .5rem; }
+  .voice-btn { padding: .5rem 1rem; font-size: 1.05rem; min-height: 44px; }
+  .voice-status { font-size: .88rem; padding: .35rem .6rem; }
   .ans-tiles {
     flex-wrap: nowrap;
     gap: 3px;

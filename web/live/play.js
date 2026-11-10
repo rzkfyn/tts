@@ -1,5 +1,6 @@
 // Player client for a live room. Routes: #/join/<code> or #/ (enter code). Protocol: docs/spec.md.
 import { api, esc, toast, avatarImg, avatarEditor, Sound, liveSocket, fmtCountdown } from "/common.js";
+import { isSpeechRecognitionSupported, createVoiceRecognizer, parseVoiceAnswer } from "/voice.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $("#app");
@@ -18,6 +19,7 @@ let heardJoin = false; // own ev-join plays once per page load, not on every rec
 let view = null; // key of the rendered view
 let buzzedFor = null; // clue id we already pressed BEL for (until the state moves on)
 let typed = ""; // letters typed into the empty answer tiles
+let activeRecognizer = null; // active voice-to-text speech recognizer
 const REACTS = [["wave", "👋", "Lambai"], ["tawa", "😂", "Tawa"], ["api", "🔥", "Api"], ["pesta", "🎉", "Pesta"], ["degdegan", "😬", "Deg-degan"]];
 const REACT_EMOJI = Object.fromEntries(REACTS.map(([k, e]) => [k, e]));
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -36,6 +38,180 @@ const unlockAudio = () => {
 };
 document.addEventListener("pointerdown", unlockAudio, true);
 document.addEventListener("keydown", unlockAudio, true);
+
+// ---------- Voice permission confirm modal ----------
+
+const voiceModal = $("#voiceModal");
+const micBtn = $("#micBtn");
+
+function isSecureOrigin() {
+  return window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+}
+
+function updateMicButtonState(granted) {
+  if (!micBtn) return;
+  micBtn.classList.toggle("granted", !!granted);
+  micBtn.title = granted ? "Izin mikrofon aktif ✓" : "Izin suara & mikrofon";
+}
+
+async function checkMicPermission() {
+  if (navigator.permissions?.query) {
+    try {
+      const q = await navigator.permissions.query({ name: "microphone" });
+      updateMicButtonState(q.state === "granted");
+      q.onchange = () => updateMicButtonState(q.state === "granted");
+      return q.state;
+    } catch (_) {}
+  }
+  return "prompt";
+}
+checkMicPermission();
+
+async function requestVoicePermission() {
+  Sound.unlock();
+  if (!isSecureOrigin()) {
+    toast("Mikrofon membutuhkan HTTPS. Ketuk 'Beralih ke HTTPS'.");
+    return false;
+  }
+  try {
+    if (navigator.mediaDevices?.getUserMedia) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      updateMicButtonState(true);
+      toast("✓ Izin mikrofon aktif! Kamu bisa menjawab dengan suara.");
+      return true;
+    } else if (isSpeechRecognitionSupported()) {
+      return new Promise((resolve) => {
+        let done = false;
+        const testRec = createVoiceRecognizer({
+          onStart: () => {
+            if (done) return;
+            done = true;
+            testRec.stop();
+            updateMicButtonState(true);
+            toast("✓ Izin suara & mikrofon aktif!");
+            resolve(true);
+          },
+          onError: (msg) => {
+            if (done) return;
+            done = true;
+            toast(msg);
+            resolve(false);
+          },
+          onEnd: () => {
+            if (!done) {
+              done = true;
+              resolve(false);
+            }
+          }
+        });
+        testRec.start();
+        setTimeout(() => {
+          if (!done) {
+            done = true;
+            testRec.abort();
+            resolve(false);
+          }
+        }, 8000);
+      });
+    } else {
+      toast("Browser kamu belum mendukung voice-to-text.");
+      return false;
+    }
+  } catch (err) {
+    console.warn("Mic permission error:", err);
+    updateMicButtonState(false);
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      toast("Izin mikrofon ditolak. Kamu tetap bisa mengetik jawaban secara manual.");
+    } else {
+      toast("Gagal mengaktifkan mikrofon: " + (err.message || "error"));
+    }
+    return false;
+  }
+}
+
+function renderVoiceModal() {
+  const permBox = $("#permBox");
+  if (!permBox) return;
+
+  if (!isSecureOrigin()) {
+    permBox.innerHTML = `
+      <div class="perm-icon">🔒</div>
+      <h2 id="permTitle">Beralih ke HTTPS untuk Suara</h2>
+      <p>Browser HP memblokir izin mikrofon pada koneksi HTTP biasa (<code>${esc(location.host)}</code>).</p>
+      <p class="sub">Agar kamu bisa menjawab teka-teki dengan suara, buka TTS lewat <b>HTTPS</b>.</p>
+      <div class="perm-tip">
+        💡 <b>Catatan:</b> Saat membuka HTTPS, jika browser memunculkan pesan <i>"Koneksi Tidak Privat / Not Secure"</i>, cukup ketuk <b>Lanjutan (Advanced) → Lanjutkan ke situs (Proceed)</b>.
+      </div>
+      <div class="perm-actions">
+        <button type="button" class="btn go big" id="switchHttpsBtn">🔒 Beralih ke HTTPS</button>
+        <button type="button" class="btn" id="skipMicBtn">Tetap di HTTP (Ketik Manual)</button>
+      </div>`;
+
+    $("#switchHttpsBtn")?.addEventListener("click", () => {
+      const httpsUrl = `https://${location.hostname}:${location.port}${location.pathname}${location.search}${location.hash}`;
+      location.href = httpsUrl;
+    });
+  } else {
+    permBox.innerHTML = `
+      <div class="perm-icon">🎙️</div>
+      <h2 id="permTitle">Izin Suara & Mikrofon</h2>
+      <p>TTS Kuis dilengkapi fitur <b>Voice-to-Text</b> agar kamu bisa menjawab teka-teki cukup dengan berbicara!</p>
+      <p class="sub">Aktifkan izin mikrofon sekarang agar saat bel ditekan, kamu bisa langsung bicara tanpa terhambat popup browser.</p>
+      <div class="perm-actions">
+        <button type="button" class="btn go big" id="allowMicBtn">🎙️ Izinkan Mikrofon</button>
+        <button type="button" class="btn" id="skipMicBtn">Nanti Saja</button>
+      </div>`;
+
+    $("#allowMicBtn")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const prevText = btn.innerHTML;
+      btn.textContent = "Meminta izin…";
+      await requestVoicePermission();
+      btn.disabled = false;
+      btn.innerHTML = prevText;
+      hideVoiceModal();
+    });
+  }
+
+  $("#skipMicBtn")?.addEventListener("click", () => {
+    Sound.unlock();
+    hideVoiceModal();
+  });
+}
+
+async function showVoicePermissionConfirm(force = false) {
+  if (!voiceModal) return;
+  const sessionKey = `tts_mic_prompted_${code}`;
+  if (!force && sessionStorage.getItem(sessionKey)) return;
+  sessionStorage.setItem(sessionKey, "1");
+
+  const state = await checkMicPermission();
+  if (!force && state === "granted") return;
+
+  renderVoiceModal();
+  voiceModal.classList.remove("hidden");
+}
+
+function hideVoiceModal() {
+  if (!voiceModal) return;
+  voiceModal.classList.add("hidden");
+}
+
+voiceModal?.addEventListener("click", (e) => {
+  if (e.target === voiceModal) hideVoiceModal();
+});
+
+micBtn?.addEventListener("click", () => {
+  showVoicePermissionConfirm(true);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && voiceModal && !voiceModal.classList.contains("hidden")) {
+    hideVoiceModal();
+  }
+});
 
 window.addEventListener("hashchange", () => location.reload());
 boot();
@@ -191,6 +367,7 @@ function onMessage(msg) {
       nickname = msg.you.nickname;
       localStorage.setItem(tokenKey(code), msg.you.token);
       if (!heardJoin) { heardJoin = true; Sound.play("ev-join"); }
+      showVoicePermissionConfirm();
       break;
     case "state": {
       const prev = st;
@@ -340,6 +517,10 @@ function render() {
   }
   const key = viewKey();
   const changed = key !== view;
+  if (changed && activeRecognizer) {
+    activeRecognizer.abort();
+    activeRecognizer = null;
+  }
   view = key;
   if (key !== `buzz:${buzzedFor}`) buzzedFor = null;
   if (key === "lobby") { if (changed) skeletonLobby(); updateLobby(); return; }
@@ -590,24 +771,50 @@ document.addEventListener("keydown", (e) => {
 // ----- answering -----
 
 function renderAnswer() {
+  if (activeRecognizer) {
+    activeRecognizer.abort();
+    activeRecognizer = null;
+  }
   const a = st.active;
   const clue = st.quiz.clues.find((c) => c.id === a.clue_id);
   const cells = cellsOf(clue);
   const fixed = cells.map((k) => st.letters[k] || "");
   const empties = fixed.filter((l) => !l).length;
   typed = "";
+  const supported = isSpeechRecognitionSupported();
   app.innerHTML = `<div class="stack">
     <section class="panel clue-card">${clueHeader(clue)}</section>
     <form class="panel answer" id="ansForm" autocomplete="off">
-      <h2>Giliranmu! Ketik jawaban</h2>
+      <h2>Giliranmu! Jawab teka-teki</h2>
       ${a.deadline ? ring(a.deadline) : ""}
       <div class="ans-tiles" id="tiles" style="--len:${clue.length}">
         ${fixed.map((l, i) => `<div class="tile open${l ? " lock" : ""}" data-i="${i}">${esc(l)}</div>`).join("")}
         <input class="ans-input" id="ans" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="Jawaban (${clue.length} huruf)">
       </div>
-      <button class="btn go big" type="submit" id="sendBtn" disabled>Kirim</button>
+      <div class="voice-status hidden" id="voiceStatus" aria-live="polite"></div>
+      <div class="ans-actions">
+        <button class="btn voice-btn" type="button" id="voiceBtn" aria-label="Bicara untuk menjawab" title="${supported ? "Jawab dengan suara (Voice to Text)" : "Voice-to-text tidak didukung di browser ini"}">
+          <span class="voice-icon">🎙️</span>
+          <span class="voice-text">Bicara</span>
+        </button>
+        <button class="btn go big" type="submit" id="sendBtn" disabled>Kirim</button>
+      </div>
     </form></div>`;
   const input = $("#ans");
+  const voiceBtn = $("#voiceBtn");
+  const voiceStatus = $("#voiceStatus");
+
+  const showVoiceStatus = (text, kind = "listening") => {
+    if (!voiceStatus) return;
+    voiceStatus.className = `voice-status ${kind}`;
+    voiceStatus.textContent = text;
+  };
+  const hideVoiceStatus = () => {
+    if (!voiceStatus) return;
+    voiceStatus.className = "voice-status hidden";
+    voiceStatus.textContent = "";
+  };
+
   const paint = () => {
     let t = 0;
     let cursorSet = false;
@@ -621,6 +828,90 @@ function renderAnswer() {
     }
     $("#sendBtn").disabled = typed.length !== empties;
   };
+
+  const recognizer = createVoiceRecognizer({
+    lang: "id-ID",
+    onStart: () => {
+      voiceBtn.classList.add("listening");
+      voiceBtn.querySelector(".voice-icon").textContent = "🔴";
+      voiceBtn.querySelector(".voice-text").textContent = "Mendengarkan…";
+      showVoiceStatus("Mendengarkan… Ucapkan jawabanmu", "listening");
+    },
+    onInterim: (interim) => {
+      showVoiceStatus(`Mendengar: "${interim}"…`, "listening");
+      const res = parseVoiceAnswer(interim, clue.length, fixed, empties);
+      if (res && res.typed) {
+        typed = res.typed.slice(0, empties);
+        input.value = typed;
+        paint();
+      }
+    },
+    onResult: ({ transcript, isFinal }) => {
+      const res = parseVoiceAnswer(transcript, clue.length, fixed, empties);
+      if (res && res.typed) {
+        typed = res.typed.slice(0, empties);
+        input.value = typed;
+        paint();
+        if (isFinal) {
+          showVoiceStatus(`✓ Terdeteksi: "${res.candidate}"`, "heard");
+        }
+      } else if (isFinal && transcript) {
+        showVoiceStatus(`Mendengar: "${transcript}" (tidak pas dengan ${clue.length} huruf)`, "listening");
+      }
+    },
+    onError: (msg) => {
+      toast(msg);
+      hideVoiceStatus();
+    },
+    onEnd: () => {
+      voiceBtn.classList.remove("listening");
+      voiceBtn.querySelector(".voice-icon").textContent = "🎙️";
+      voiceBtn.querySelector(".voice-text").textContent = "Bicara";
+    }
+  });
+  activeRecognizer = recognizer;
+
+  const autoVoice = supported && isSecureOrigin();
+
+  // Automatically start listening so player can immediately speak the answer!
+  if (autoVoice) {
+    setTimeout(() => {
+      if (activeRecognizer === recognizer && view?.startsWith("answer:")) {
+        try {
+          recognizer.start();
+        } catch (e) {
+          console.warn("Auto-start mic failed:", e);
+        }
+      }
+    }, 180);
+  }
+
+  let readyForClicks = false;
+  setTimeout(() => { readyForClicks = true; }, 450);
+
+  voiceBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!readyForClicks) {
+      // Ignore rapid tap or click bleed from the bell button
+      return;
+    }
+    Sound.unlock();
+    if (!isSecureOrigin()) {
+      showVoicePermissionConfirm(true);
+      toast("Fitur suara membutuhkan koneksi HTTPS. Beralih ke HTTPS untuk menggunakan suara.");
+      return;
+    }
+    if (!supported) {
+      toast("Browser kamu belum mendukung voice-to-text. Silakan ketik langsung.");
+      return;
+    }
+    if (recognizer.isListening()) {
+      recognizer.stop();
+    } else {
+      recognizer.start();
+    }
+  });
+
   input.addEventListener("input", () => {
     typed = input.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, empties);
     input.value = typed;
@@ -630,12 +921,25 @@ function renderAnswer() {
   input.addEventListener("focus", () => {
     $("#tiles")?.scrollIntoView({ block: "center", behavior: "smooth" });
   });
+
+  const onKeyType = (e) => {
+    if (e.target !== input && e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      input.focus();
+    }
+  };
+  window.addEventListener("keydown", onKeyType, { once: true });
+
   let sent = false;
   $("#ansForm").addEventListener("submit", (e) => {
     e.preventDefault();
     if (sent) return;
     if (typed.length !== empties) { toast("Lengkapi semua kotak dulu."); return; }
     sent = true; // Enter + Kirim in quick succession must not send twice
+    window.removeEventListener("keydown", onKeyType);
+    if (activeRecognizer) {
+      activeRecognizer.abort();
+      activeRecognizer = null;
+    }
     let t = 0;
     const word = fixed.map((l) => l || typed[t++]).join("");
     sock.send({ type: "answer", text: word });
@@ -643,7 +947,9 @@ function renderAnswer() {
     input.blur();
   });
   paint();
-  input.focus();
+  if (!autoVoice) {
+    input.focus();
+  }
   $("#tiles")?.scrollIntoView({ block: "center" });
 }
 
