@@ -104,7 +104,7 @@
 .clue-list li .ct { flex: 1; min-width: 0; }
 .clue-list li.solved .ct { text-decoration: line-through; color: var(--muted); }
 .clue-list li.revealed .ct { color: var(--muted); }
-.clue-list li.sel { border-color: var(--navy); background: var(--sun-soft); }
+.clue-list li.sel { border-color: var(--navy); background: var(--sun-soft); box-shadow: 0 0 0 2px var(--sun); }
 .clue-list li.act { border-color: var(--navy); background: var(--sun); }
 .clue-list .avatar { border-width: 2px; border-radius: 8px; box-shadow: none; }
 .clues { max-height: 60vh; overflow-y: auto; }
@@ -235,5 +235,15 @@
 /* Player live status enhancements */
 .opponent-box { display: grid; justify-items: center; gap: .6rem; padding: 1.2rem; background: var(--paper); border: 2.5px solid var(--navy); border-radius: 18px; box-shadow: var(--lift); width: min(85vw, 340px); text-align: center; }
 .locked-box { display: grid; justify-items: center; gap: .4rem; padding: 1.2rem; background: var(--sky); border: 2.5px dashed var(--navy); border-radius: 18px; width: min(85vw, 340px); text-align: center; }
+
+/* Wrong guess display */
+.chip.wrong-guess { background: var(--tomato-soft); color: var(--tomato); font-weight: 800; border: 1.5px solid var(--tomato); padding: .1rem .45rem; border-radius: 6px; font-size: .95rem; display: inline-flex; align-items: center; }
+.chip.wrong-guess s { text-decoration: line-through; }
+.chip.wrong-guess.muted { font-weight: 600; color: var(--muted); border-color: var(--muted); font-style: italic; text-decoration: none; }
+.locked-attempts { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-wrap: wrap; font-size: .95rem; margin-top: .4rem; }
+.attempt-chip { display: inline-flex; align-items: center; gap: .3rem; }
+.wrong-info { margin: .2rem 0; font-size: 1.05rem; }
+.delta-guess { font-size: 1.1rem; font-weight: 800; margin-top: .2rem; text-decoration: line-through; opacity: .9; }
+
 
 

@@ -108,6 +108,17 @@ function onMessage(msg) {
         if (c) cellsOf(c).forEach((k, i) => anim.set(k, { cls: "flip", i, until: Date.now() + 500 + i * 70 }));
       } else {
         shakeUntil = Date.now() + 500;
+        const p = player(msg.player_id);
+        const name = p?.nickname ?? "Pemain";
+        const guessTxt = msg.guess ? `"${msg.guess}"` : "(waktu habis)";
+        outcome = { text: `${name} menebak ${guessTxt} · Salah!`, bad: true, until: Date.now() + 4000 };
+        const c = st?.quiz.clues.find((x) => x.id === msg.clue_id);
+        if (c && msg.guess) {
+          cellsOf(c).forEach((k, i) => {
+            const ch = msg.guess[i] || "";
+            anim.set(k, { cls: "bad", i, letter: ch, until: Date.now() + 1500 });
+          });
+        }
       }
       break;
     }
@@ -317,7 +328,6 @@ function skeletonPlaying() {
       </div>
       <aside class="stage-side">
         <section class="panel"><h2>Skor</h2><ol class="scores" id="scores"></ol></section>
-        <section class="panel clues" id="clues"></section>
       </aside>
     </div>`;
   sizeBoard();
@@ -374,7 +384,7 @@ function renderPlaying() {
     if (live) cls += ` ${live.cls}`;
     if (el.className !== cls) el.className = cls;
     if (live) el.style.setProperty("--i", live.i);
-    const letter = st.letters[k] || "";
+    const letter = (live && live.letter !== undefined) ? live.letter : (st.letters[k] || "");
     const l = el.querySelector(".l");
     if (l.textContent !== letter) l.textContent = letter;
   }
@@ -390,15 +400,20 @@ function renderPlaying() {
     } else {
       stateHtml = `<span class="pulse">🔔 Bel terbuka! Siapa cepat dia dapat!</span>`;
     }
+    const attemptsMap = new Map((active.attempts || []).map((a) => [a.player_id, a.guess]));
     const locked = active.locked_out.length
       ? `<div class="locked"><span class="muted">Sudah mencoba:</span>${active.locked_out.map((id) => {
           const p = player(id);
-          return `<span class="row" style="gap:.3rem">${avatarImg(p?.avatar, 28, p?.nickname)}${esc(p?.nickname ?? "?")}</span>`;
+          const g = attemptsMap.get(id);
+          const gHtml = g !== undefined
+            ? (g ? `<span class="chip wrong-guess"><s>${esc(g)}</s></span>` : `<span class="chip wrong-guess muted">waktu habis</span>`)
+            : "";
+          return `<span class="row attempt-chip" style="gap:.3rem">${avatarImg(p?.avatar, 28, p?.nickname)}<span>${esc(p?.nickname ?? "?")}</span>${gHtml}</span>`;
         }).join("")}</div>`
       : "";
     ap.innerHTML = `
-      <p class="eyebrow">${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf</p>
-      <div class="clue-big">${esc(activeClue.clue)}</div>
+      <p class="eyebrow">Soal Aktif</p>
+      <div class="clue-big">${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf</div>
       <div class="astate">${stateHtml}</div>
       ${locked}`;
   } else {
@@ -415,19 +430,6 @@ function renderPlaying() {
       <span class="rk">${i + 1}</span>${avatarImg(p.avatar, 40, p.nickname)}<span class="nm">${esc(p.nickname)}</span><span class="sc">${p.score}</span>
     </li>`;
   }).join("");
-
-  // Clue lists
-  const list = (dir) => q.clues.filter((c) => c.direction === dir).sort((a, b) => a.number - b.number).map((c) => {
-    let extra = "";
-    if (c.status === "solved") {
-      const p = player(c.solved_by);
-      extra = `${p ? avatarImg(p.avatar, 26, p.nickname) : ""}<span class="chip mint">${esc(c.answer ?? "")}</span>`;
-    } else if (c.status === "revealed") extra = `<span class="chip">dibuka${c.answer ? `: ${esc(c.answer)}` : ""}</span>`;
-    else if (c.status === "skipped") extra = `<span class="chip sun">dilewati</span>`;
-    const cls = [c.status, c.id === active?.clue_id ? "act" : ""].join(" ");
-    return `<li class="${cls}"><span class="n">${c.number}</span><span class="ct">${esc(c.clue)} <span class="muted">(${c.length})</span></span>${extra}</li>`;
-  }).join("");
-  $("#clues").innerHTML = `<h2>Mendatar</h2><ul class="clue-list">${list("across")}</ul><h2>Menurun</h2><ul class="clue-list">${list("down")}</ul>`;
 }
 
 function outcomeText(lo) {

@@ -95,6 +95,11 @@ type clue struct {
 
 func (c *clue) done() bool { return c.status == StatusSolved || c.status == StatusRevealed }
 
+type attempt struct {
+	playerID string
+	guess    string
+}
+
 type activeClue struct {
 	clue      *clue
 	answering *player
@@ -102,6 +107,7 @@ type activeClue struct {
 	deadline  time.Time
 	timer     Timer
 	locked    []string
+	attempts  []attempt
 }
 
 func (a *activeClue) isLocked(id string) bool { return slices.Contains(a.locked, id) }
@@ -320,6 +326,14 @@ func (r *Room) snapshot() *RoomState {
 		if sa.LockedOut == nil {
 			sa.LockedOut = []string{}
 		}
+		if a.attempts != nil {
+			sa.Attempts = make([]Attempt, len(a.attempts))
+			for i, att := range a.attempts {
+				sa.Attempts[i] = Attempt{PlayerID: att.playerID, Guess: att.guess}
+			}
+		} else {
+			sa.Attempts = []Attempt{}
+		}
 		if a.answering != nil {
 			sa.State = "answering"
 			sa.AnsweringPlayer = new(a.answering.id)
@@ -463,7 +477,7 @@ func (r *Room) leave(c *Client) {
 	p.conn = nil
 	if a := r.active; a != nil && r.phase == PhasePlaying {
 		if a.answering == p {
-			r.wrong(p)
+			r.wrong(p, "")
 			r.settle()
 			return
 		}
@@ -654,10 +668,11 @@ func (r *Room) playerMsg(p *player, m Msg) string {
 		if r.phase != PhasePlaying || a == nil || a.answering != p {
 			return "Bukan giliranmu menjawab"
 		}
-		if crossword.Normalize(m.Text) == a.clue.answer {
+		guess := crossword.Normalize(m.Text)
+		if guess == a.clue.answer {
 			r.correct(p)
 		} else {
-			r.wrong(p)
+			r.wrong(p, guess)
 		}
 		r.settle()
 		return ""
@@ -682,7 +697,7 @@ func (r *Room) stopTimer() {
 func (r *Room) timeout(gen int) {
 	if a := r.active; a != nil && a.answering != nil && gen == r.gen {
 		r.touch()
-		r.wrong(a.answering)
+		r.wrong(a.answering, "")
 		r.settle()
 	}
 }
@@ -701,19 +716,20 @@ func (r *Room) correct(p *player) {
 	a.clue.status, a.clue.solvedBy = StatusSolved, p.id
 	r.last = &Outcome{ClueID: a.clue.pub.ID, Kind: OutcomeSolved, PlayerID: new(p.id), Answer: new(a.clue.answer)}
 	r.active = nil
-	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: true, ClueID: a.clue.pub.ID, Delta: pts})
+	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: true, ClueID: a.clue.pub.ID, Delta: pts, Guess: a.clue.answer})
 }
 
 // wrong penalises p, locks them out and reopens the buzzer or exhausts the clue.
-func (r *Room) wrong(p *player) {
+func (r *Room) wrong(p *player, guess string) {
 	a := r.active
 	r.stopTimer()
 	pen := r.settings.PenaltyWrong
 	p.score -= pen
 	p.wrong++
 	a.locked = append(a.locked, p.id)
+	a.attempts = append(a.attempts, attempt{playerID: p.id, guess: guess})
 	a.answering = nil
-	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: false, ClueID: a.clue.pub.ID, Delta: -pen})
+	r.broadcast(resultMsg{Type: "result", PlayerID: p.id, Correct: false, ClueID: a.clue.pub.ID, Delta: -pen, Guess: guess})
 	if !r.anyEligible() {
 		r.exhaust()
 	}
@@ -723,7 +739,14 @@ func (r *Room) exhaust() {
 	c := r.active.clue
 	r.stopTimer()
 	c.status = StatusRevealed
-	r.last = &Outcome{ClueID: c.pub.ID, Kind: OutcomeExhausted, Answer: new(c.answer)}
+	var atts []Attempt
+	if r.active != nil && r.active.attempts != nil {
+		atts = make([]Attempt, len(r.active.attempts))
+		for i, a := range r.active.attempts {
+			atts[i] = Attempt{PlayerID: a.playerID, Guess: a.guess}
+		}
+	}
+	r.last = &Outcome{ClueID: c.pub.ID, Kind: OutcomeExhausted, Answer: new(c.answer), Attempts: atts}
 	r.active = nil
 }
 

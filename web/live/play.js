@@ -207,7 +207,14 @@ function onMessage(msg) {
       break;
     case "result":
       Sound.play(msg.correct ? "ev-correct" : "ev-wrong");
-      if (msg.player_id === myId) showDelta(msg);
+      if (msg.player_id === myId) {
+        showDelta(msg);
+      } else if (!msg.correct) {
+        const p = player(msg.player_id);
+        const name = p?.nickname ?? "Pemain";
+        const guessTxt = msg.guess ? `"${msg.guess}"` : "(waktu habis)";
+        toast(`${name} menebak ${guessTxt} · Salah!`);
+      }
       break;
     case "error":
       if (!myId) {
@@ -294,7 +301,8 @@ function showDelta(msg) {
   const el = document.createElement("div");
   el.className = `delta ${msg.correct ? "good" : "bad"}`;
   const d = msg.delta > 0 ? `+${msg.delta}` : msg.delta < 0 ? `−${Math.abs(msg.delta)}` : "0";
-  el.innerHTML = `${d}<small>${msg.correct ? "Benar!" : "Salah"}</small>`;
+  const guessHtml = !msg.correct && msg.guess ? `<div class="delta-guess"><s>${esc(msg.guess)}</s></div>` : "";
+  el.innerHTML = `${d}<small>${msg.correct ? "Benar!" : "Salah"}</small>${guessHtml}`;
   document.body.append(el);
   setTimeout(() => el.remove(), 1700);
   if (!msg.correct) {
@@ -513,14 +521,35 @@ function renderPlaying() {
       ${a.deadline ? `<span class="cd" data-deadline="${a.deadline}">${countdown(a.deadline).text}</span>` : ""}
     </div>`;
   } else if (a.locked_out.includes(myId)) {
+    const attemptsMap = new Map((a.attempts || []).map((x) => [x.player_id, x.guess]));
+    const myGuess = attemptsMap.get(myId);
+    const guessInfo = myGuess !== undefined
+      ? (myGuess ? `<p class="wrong-info">Tebakanmu: <span class="chip wrong-guess"><s>${esc(myGuess)}</s></span> (Salah)</p>` : `<p class="wrong-info muted">Waktu menjawab habis</p>`)
+      : "";
     action = `<div class="locked-box">
       <div class="chip sun">🔒 Terkunci</div>
+      ${guessInfo}
       <p>Kamu sudah mencoba di soal ini.<br><small class="muted">Tunggu jika bel terbuka lagi untuk soal berikutnya.</small></p>
     </div>`;
   } else {
     const pressed = buzzedFor === a.clue_id;
+    const attemptsMap = new Map((a.attempts || []).map((x) => [x.player_id, x.guess]));
+    const prevAttempts = a.locked_out.length
+      ? `<div class="locked-attempts">
+          <span class="muted">Tebakan salah:</span>
+          ${a.locked_out.map((id) => {
+            const p = player(id);
+            const g = attemptsMap.get(id);
+            const gHtml = g !== undefined
+              ? (g ? `<span class="chip wrong-guess"><s>${esc(g)}</s></span>` : `<span class="chip wrong-guess muted">waktu habis</span>`)
+              : "";
+            return `<span class="row attempt-chip" style="gap:.3rem">${avatarImg(p?.avatar, 22, p?.nickname)}<span>${esc(p?.nickname ?? "?")}</span>${gHtml}</span>`;
+          }).join("")}
+        </div>`
+      : "";
     action = `<button type="button" class="bel${pressed ? " pressed" : ""}" id="bel" ${pressed ? "disabled" : ""}>BEL!</button>
-      <p class="muted">Tekan tombol atau <kbd>Spasi</kbd></p>`;
+      <p class="muted">Tekan tombol atau <kbd>Spasi</kbd></p>
+      ${prevAttempts}`;
   }
   app.innerHTML = `<div class="stack">
     <section class="panel clue-card">${clueHeader(clue)}</section>

@@ -330,6 +330,9 @@ func TestWrongLockoutReopen(t *testing.T) {
 	if st.Active == nil || st.Active.State != "waiting" || !slices.Equal(st.Active.LockedOut, []string{ps[0].you.PlayerID}) {
 		t.Fatalf("active %+v", st.Active)
 	}
+	if len(st.Active.Attempts) != 1 || st.Active.Attempts[0].Guess != "KUDU" || st.Active.Attempts[0].PlayerID != ps[0].you.PlayerID {
+		t.Fatalf("attempts %+v", st.Active.Attempts)
+	}
 	if p := findPlayer(st, ps[0].you.PlayerID); p.Score != -5 || p.Wrong != 1 {
 		t.Fatalf("player %+v", p)
 	}
