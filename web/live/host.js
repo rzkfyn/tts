@@ -472,7 +472,9 @@ function sizeBoard() {
   const panel = board.closest(".panel");
   const ps = getComputedStyle(panel);
   const boxW = panel.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
-  setBoardCell(board, fitCell(board, boxW, window.innerHeight * 0.62, width, height, 24, 76));
+  const rect = panel.getBoundingClientRect();
+  const boxH = Math.max(300, window.innerHeight - rect.top - parseFloat(ps.paddingBottom) - 24);
+  setBoardCell(board, fitCell(board, boxW, boxH, width, height, 24, 88));
   snapBoard(board);
 }
 window.addEventListener("resize", sizeBoard);

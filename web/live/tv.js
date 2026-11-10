@@ -199,11 +199,11 @@ function render() {
 
 function skeletonLobby() {
   const codeTiles = code.split("").map((c, i) =>
-    `<span class="ctile" style="--r:${CODE_TILT[i % CODE_TILT.length]}deg">${c}</span>`
+    `<span class="code-tile" style="--r:${CODE_TILT[i % CODE_TILT.length]}deg">${c}</span>`
   ).join("");
 
   app.innerHTML = `
-    <div class="lobby-grid tv-lobby">
+    <div class="lobby tv-lobby">
       <section class="panel join-card">
         <h2>Gabung sekarang</h2>
         <div class="code-tiles" aria-label="Kode room: ${code}">${codeTiles}</div>
@@ -321,19 +321,29 @@ function skeletonPlaying() {
   }
   app.innerHTML = `
     <div class="stage tv-stage">
-      <div class="stage-main">
+      <section class="panel board-center">
+        <div class="board-wrap">
+          <div class="board" id="board" style="grid-template-columns:repeat(${q.width}, var(--cell))">${tiles}</div>
+        </div>
+      </section>
+      <aside class="stage-side tv-side">
         <section class="panel active-panel" id="active"></section>
         <div id="outcome"></div>
-        <section class="panel board-center"><div class="board-wrap"><div class="board" id="board" style="grid-template-columns:repeat(${q.width}, var(--cell))">${tiles}</div></div></section>
-      </div>
-      <aside class="stage-side">
-        <section class="panel"><h2>Skor</h2><ol class="scores" id="scores"></ol></section>
+        <section class="panel scores-panel">
+          <h2>Skor</h2>
+          <ol class="scores" id="scores"></ol>
+        </section>
       </aside>
     </div>`;
   sizeBoard();
+  requestAnimationFrame(sizeBoard);
+  document.fonts?.ready?.then(sizeBoard);
   resizeWatch?.disconnect();
   resizeWatch = new ResizeObserver(() => snapBoard($("#board")));
-  for (const sel of ["#active", "#outcome", ".stage-main"]) resizeWatch.observe($(sel));
+  for (const sel of ["#board", ".board-center", ".tv-side", ".tv-stage"]) {
+    const el = $(sel);
+    if (el) resizeWatch.observe(el);
+  }
 }
 
 function sizeBoard() {
@@ -341,9 +351,13 @@ function sizeBoard() {
   if (!board || !st) return;
   const { width, height } = st.quiz;
   const panel = board.closest(".panel");
+  if (!panel) return;
   const ps = getComputedStyle(panel);
   const boxW = panel.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
-  setBoardCell(board, fitCell(board, boxW, window.innerHeight * 0.62, width, height, 24, 88));
+  const rect = panel.getBoundingClientRect();
+  const innerH = panel.clientHeight - parseFloat(ps.paddingTop) - parseFloat(ps.paddingBottom);
+  const boxH = Math.max(300, Math.max(innerH, window.innerHeight - rect.top - parseFloat(ps.paddingBottom) - 24));
+  setBoardCell(board, fitCell(board, boxW, boxH, width, height, 24, 110));
   snapBoard(board);
 }
 window.addEventListener("resize", sizeBoard);
@@ -412,8 +426,8 @@ function renderPlaying() {
         }).join("")}</div>`
       : "";
     ap.innerHTML = `
-      <p class="eyebrow">Soal Aktif</p>
-      <div class="clue-big">${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf</div>
+      <p class="eyebrow">Soal Aktif · ${activeClue.number} ${DIR[activeClue.direction]} · ${activeClue.length} huruf</p>
+      <div class="clue-big clue-text">${esc(activeClue.clue)}</div>
       <div class="astate">${stateHtml}</div>
       ${locked}`;
   } else {
@@ -423,13 +437,16 @@ function renderPlaying() {
   }
 
   // Scoreboard
-  const turn = active?.answering_player;
-  $("#scores").innerHTML = ranked().map((p, i) => {
-    const fl = (flash.get(p.id) || 0) > t;
-    return `<li data-pid="${esc(p.id)}" class="${p.connected ? "" : "dim"}${p.id === turn ? " turn" : ""}${fl ? " flash" : ""}">
-      <span class="rk">${i + 1}</span>${avatarImg(p.avatar, 40, p.nickname)}<span class="nm">${esc(p.nickname)}</span><span class="sc">${p.score}</span>
-    </li>`;
-  }).join("");
+  const elScores = $("#scores");
+  if (elScores) {
+    const turn = active?.answering_player;
+    elScores.innerHTML = ranked().map((p, i) => {
+      const fl = (flash.get(p.id) || 0) > t;
+      return `<li data-pid="${esc(p.id)}" class="${p.connected ? "" : "dim"}${p.id === turn ? " turn" : ""}${fl ? " flash" : ""}">
+        <span class="rk">${i + 1}</span>${avatarImg(p.avatar, 40, p.nickname)}<span class="nm">${esc(p.nickname)}</span><span class="sc">${p.score}</span>
+      </li>`;
+    }).join("");
+  }
 }
 
 function outcomeText(lo) {
